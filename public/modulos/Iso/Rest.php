@@ -7,11 +7,15 @@ class Rest {
     private $_content;
     private $_contentType;
 
-    public function __construct($server){
-        if ($this->_valida($server)) {
+    public function __construct($server, array $contentType){
 
-            $this->_contentType = $server['HTTP_ACCEPT'] == '*/*'?'application/json':$server['HTTP_ACCEPT'];
+        $headers = apache_request_headers();
+        if ($server['REQUEST_METHOD'] != 'POST') {
+            $this->_code = 400;
+            $this->_text = 'request method invalid';
+            return false;
         }
+        $this->_setContentType($headers['Accept'], $contentType);
     }
 
     public function getCode()
@@ -31,36 +35,49 @@ class Rest {
 
     public function response()
     {
-        header("HTTP/1.0 {$this->_code} {$this->_text}");
+        $origin=isset($_SERVER['HTTP_ORIGIN'])?$_SERVER['HTTP_ORIGIN']:$_SERVER['HTTP_HOST'];
+        header("HTTP/1.1 {$this->_code} {$this->_text}");
+        header('Access-Control-Allow-Origin: '.$origin);
         header("Content-Type: {$this->_contentType}");
         header("Cache-Control: no-cache, must-revalidate");
-        switch ($this->_contentType) {
-            case 'application/json' :
-                echo json_encode($this->_content);
+        if ($this->_code == 200 ) {
+            switch ($this->_contentType) {
+                case 'application/json' :
+                    echo json_encode($this->_content);
+                    break;
+                default :
+                    echo json_encode($this->_content);
+                    break;
+            }
+        }
+    }
+
+    private function _setContentType($accept, $contentSend)
+    {
+        if ($accept == '*/*') {
+            $this->_contentType = 'application/json';
+            return true;
+        }
+        preg_match('/^[a-zA-Z]+\/(\w+)/', $accept, $contentType);
+
+        switch($contentType[1]) {
+            case 'json' :
+            case 'xml' :
+            case 'text' :
+            case 'html' :
+                if (!in_array($contentType[0], $contentSend)) {
+                    $this->_code = 406;
+                    $this->_text = 'Content Type not acceptable';
+                    return false;
+                }
+                $this->_contentType = $contentType[0];
+                return true;
                 break;
             default :
-                echo json_encode($this->_content);
-                break;
+                $this->_code = 406;
+                $this->_text = 'Content Type not acceptable';
         }
+        return false;
     }
 
-    private function _valida($server)
-    {
-        if ($server['REQUEST_METHOD'] != 'POST') {
-            $this->_code = 400;
-            $this->_text = 'request method invalid';
-            return false;
-        }
-
-        if (
-                $server['HTTP_ACCEPT'] != 'application/json' &&
-                $server['HTTP_ACCEPT'] != '*/*'
-            ) {
-            $this->_code = 406;
-            $this->_text = 'Server are return only application/json';
-            return false;
-        }
-        return true;
-
-    }
 }
